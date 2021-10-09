@@ -43,11 +43,20 @@ getMidLineOffsetInMeters =
     2.0 * 22.85
 
 
+type alias Player =
+    { posnXMeters : Float
+    , posnYMeters : Float
+    , headingDeg : Int
+    , speedMetersPerSec : Float
+    }
+
+
 type alias Model =
     { viewX : Int
     , viewY : Int
     , originX : Int
     , originY : Int
+    , players : List Player
     }
 
 
@@ -58,7 +67,7 @@ type alias Model =
 
 
 init =
-    Model 600 1000 20 20
+    Model 800 800 20 20 [ Player 10.0 23.0 0 0.0 ]
 
 
 update msg model =
@@ -98,6 +107,9 @@ view model =
 
         oppGoalPath =
             getOppositeEndGoalPath model
+
+        playerPosns =
+            getPlayerPosnsInPixels model
     in
     div []
         [ svg
@@ -183,8 +195,47 @@ view model =
                 , strokeWidth "2"
                 ]
                 []
+            , renderPlayer playerPosns
             ]
         ]
+
+
+renderPlayer posns =
+    case posns of
+        [] ->
+            circle
+                [ cx "50"
+                , cy "50"
+                , r "50"
+                , fill "#ff0000"
+                , fillOpacity "0.5"
+                ]
+                []
+
+        first :: rest ->
+            circle
+                [ cx (Tuple.first first)
+                , cy (Tuple.second first)
+                , r "10"
+                , fill "#ff0000"
+                , fillOpacity "0.5"
+                ]
+                []
+
+
+getPlayerPosnsInPixels model =
+    List.map (\p -> getPlayerPosnInPixels model p) model.players
+
+
+getPlayerPosnInPixels model player =
+    let
+        pX =
+            toPixelsX model getFieldWidthInMeters player.posnXMeters
+
+        pY =
+            toPixelsY model getFieldLengthInMeters player.posnYMeters
+    in
+    ( pX, pY )
 
 
 getGoalPath model =
