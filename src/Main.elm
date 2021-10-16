@@ -107,10 +107,7 @@ update msg model =
             ( { model | players = updated }, Cmd.none )
 
 
-
---updateSpeeds : List Player -> List Player
-
-
+updateSpeeds : List Player -> List Player
 updateSpeeds players =
     let
         targetSpeeds =
@@ -130,6 +127,7 @@ updateSpeeds players =
 --    mapTargetSpeedsToPlayers speedsToApplyByPlayer players []
 
 
+initSpeedsToZero : List Player -> Dict String ( Float, Float ) -> Dict String ( Float, Float )
 initSpeedsToZero players initializedSoFar =
     case players of
         [] ->
@@ -143,10 +141,7 @@ initSpeedsToZero players initializedSoFar =
             initSpeedsToZero rest updatedSoFar
 
 
-
---combineByPlayer : List Speed -> Dict String ( Float, Float ) -> Dict String ( Float, Float )
-
-
+combineByPlayer : List ( Speed, Speed ) -> Dict String ( Float, Float ) -> Dict String ( Float, Float )
 combineByPlayer targetSpeeds targetByPlayerSoFar =
     case targetSpeeds of
         [] ->
@@ -169,10 +164,7 @@ combineByPlayer targetSpeeds targetByPlayerSoFar =
             combineByPlayer rest updatedTargetByPlayer2
 
 
-
---mapTargetSpeedsToPlayers : Dict String ( Float, Float ) -> List Player -> List Player -> List Player
-
-
+mapTargetSpeedsToPlayers : Dict String ( Float, Float ) -> List Player -> List Player -> List Player
 mapTargetSpeedsToPlayers speedsToApplyByPlayer players updatedSoFar =
     case players of
         [] ->
@@ -207,10 +199,7 @@ mapTargetSpeedsToPlayers speedsToApplyByPlayer players updatedSoFar =
                     mapTargetSpeedsToPlayers speedsToApplyByPlayer rest (updated :: updatedSoFar)
 
 
-
---evaluateSpeeds : List Speed -> Maybe Player -> List Player -> List Speed
-
-
+evaluateSpeeds : List ( Speed, Speed ) -> Maybe Player -> List Player -> List ( Speed, Speed )
 evaluateSpeeds resultsSoFar current others =
     case current of
         Nothing ->
@@ -467,11 +456,6 @@ renderPlayer model player =
         ]
         [ Svg.text player.uid ]
     ]
-
-
-getPlayerPosnsInPixels : Model -> List ( String, String )
-getPlayerPosnsInPixels model =
-    List.map (\p -> getPlayerPosnInPixels model p) model.players
 
 
 getPlayerPosnInPixels : Model -> Player -> ( String, String )
