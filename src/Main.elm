@@ -84,7 +84,7 @@ type Msg
 
 init : () -> ( Model, Cmd Msg )
 init _ =
-    ( Model 800 800 20 20 [ Player "1" 10.0 23.0 0 1.0, Player "2" 11.0 23.0 0 0.0 ], Cmd.none )
+    ( Model 800 800 20 20 [ Player "1" 10.0 23.0 0 1.0, Player "2" 11.0 24.0 0 0.0, Player "3" 12.0 23.0 0 0.0 ], Cmd.none )
 
 
 update : Msg -> Model -> ( Model, Cmd Msg )
@@ -224,13 +224,88 @@ determineRelativeSpeeds current others =
 determineRelativeSpeed : Player -> Player -> ( Speed, Speed )
 determineRelativeSpeed current other =
     let
+        targetDistanceMeters =
+            10
+
+        maxSpeedMetersPerSec =
+            1.5
+
+        distanceBetween =
+            computeDistanceBetween current other
+
+        pairString =
+            String.append (String.append current.uid " <-> ") other.uid
+
+        _ =
+            Debug.log (String.append "distance between" pairString) distanceBetween
+
+        courseBetweenRadians =
+            computeCourseBetween current other
+
+        targetSpeedMetersPerSec =
+            getTargetSpeed distanceBetween
+
+        speedX1 =
+            targetSpeedMetersPerSec * sin courseBetweenRadians
+
+        speedY1 =
+            targetSpeedMetersPerSec * cos courseBetweenRadians
+
+        speedX2 =
+            targetSpeedMetersPerSec * sin (courseBetweenRadians + pi)
+
+        speedY2 =
+            targetSpeedMetersPerSec * cos (courseBetweenRadians + pi)
+
         speed1 =
-            Speed current.uid other.uid 1.0 0.0
+            Speed current.uid other.uid speedX1 speedY1
 
         speed2 =
-            Speed other.uid current.uid -1.0 0.0
+            Speed other.uid current.uid speedX2 speedY2
     in
     ( speed1, speed2 )
+
+
+getTargetSpeed distanceBetween =
+    let
+        targetDistanceMeters =
+            10
+
+        maxSpeedMetersPerSec =
+            1.5
+
+        dR =
+            distanceBetween - targetDistanceMeters
+    in
+    if abs dR < targetDistanceMeters then
+        dR * dR / (targetDistanceMeters * targetDistanceMeters) * maxSpeedMetersPerSec
+
+    else
+        0.0
+
+
+computeDistanceBetween : Player -> Player -> Float
+computeDistanceBetween player1 player2 =
+    let
+        dx =
+            player1.posnXMeters - player2.posnXMeters
+
+        dy =
+            player1.posnYMeters - player2.posnYMeters
+    in
+    sqrt (dx * dx + dy * dy)
+
+
+computeCourseBetween : Player -> Player -> Float
+computeCourseBetween player1 player2 =
+    let
+        dx =
+            player1.posnXMeters - player2.posnXMeters
+
+        dy =
+            player1.posnYMeters - player2.posnYMeters
+    in
+    atan2 dy dx
 
 
 updatePlayers players updatedSoFar =
