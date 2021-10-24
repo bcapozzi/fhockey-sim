@@ -748,38 +748,65 @@ renderField model =
 
 
 renderPlayer model player =
-    let
-        posn =
-            getPlayerPosnInPixels model player
+    if player.hasBall then
+        let
+            posn =
+                getPlayerPosnInPixels model player
 
-        icon =
-            circle
-                [ cx (Tuple.first posn)
-                , cy (Tuple.second posn)
-                , r "10"
-                , fill "#ff0000"
-                , fillOpacity "0.5"
-                ]
-                []
+            icon =
+                circle
+                    [ cx (Tuple.first posn)
+                    , cy (Tuple.second posn)
+                    , r "10"
+                    , fill "#ff0000"
+                    , fillOpacity "0.5"
+                    ]
+                    []
 
-        label =
-            Svg.text_
-                [ x (Tuple.first posn)
-                , y (Tuple.second posn)
-                ]
-                [ Svg.text player.uid ]
+            icon2 =
+                circle
+                    [ cx (Tuple.first posn)
+                    , cy (Tuple.second posn)
+                    , r "15"
+                    , strokeWidth "2"
+                    , stroke "#335533"
+                    , strokeOpacity "1.0"
+                    , fillOpacity "0.0"
+                    ]
+                    []
 
-        -- ball =
-        --     circle
-        --         [ cx (Tuple.first posn)
-        --         , cy (Tuple.second posn)
-        --         , r "4"
-        --         , fill "#ffffff"
-        --         , fillOpacity "1.0"
-        --         ]
-        --         []
-    in
-    [ icon, label ]
+            label =
+                Svg.text_
+                    [ x (Tuple.first posn)
+                    , y (Tuple.second posn)
+                    ]
+                    [ Svg.text player.uid ]
+        in
+        [ label, icon, icon2 ]
+
+    else
+        let
+            posn =
+                getPlayerPosnInPixels model player
+
+            icon =
+                circle
+                    [ cx (Tuple.first posn)
+                    , cy (Tuple.second posn)
+                    , r "10"
+                    , fill "#ff0000"
+                    , fillOpacity "0.5"
+                    ]
+                    []
+
+            label =
+                Svg.text_
+                    [ x (Tuple.first posn)
+                    , y (Tuple.second posn)
+                    ]
+                    [ Svg.text player.uid ]
+        in
+        [ icon, label ]
 
 
 
