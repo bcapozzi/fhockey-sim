@@ -52,6 +52,7 @@ type alias Player =
     , posnYMeters : Float
     , headingDeg : Float
     , speedMetersPerSec : Float
+    , hasBall : Bool
     }
 
 
@@ -61,6 +62,16 @@ type alias Model =
     , originX : Int
     , originY : Int
     , players : List Player
+    , ball : Ball
+    , epoch : Int
+    }
+
+
+type alias Ball =
+    { posnXMeters : Float
+    , posnYMeters : Float
+    , speedX : Float
+    , speedY : Float
     }
 
 
@@ -84,7 +95,7 @@ type Msg
 
 init : () -> ( Model, Cmd Msg )
 init _ =
-    ( Model 800 800 20 20 [ Player "1" 10.0 23.0 0 1.0, Player "2" 11.0 24.0 0 0.0, Player "3" 12.0 23.0 0 0.0 ], Cmd.none )
+    ( Model 800 800 20 20 [ Player "1" 10.0 23.0 0 1.0 False, Player "2" 11.0 24.0 0 0.0 True, Player "3" 12.0 23.0 0 0.0 False ] (Ball 0.0 0.0 0.0 0.0) 0, Cmd.none )
 
 
 update : Msg -> Model -> ( Model, Cmd Msg )
@@ -92,19 +103,237 @@ update msg model =
     case msg of
         TimeUpdate tposix ->
             let
-                temp =
-                    updateSpeeds model.players
-
-                updated =
-                    updatePlayers temp []
-
-                _ =
-                    Debug.log "speed updated" temp
-
-                _ =
-                    Debug.log "player updated" updated
+                ( updatedPlayers, updatedBall ) =
+                    updateAll model
             in
-            ( { model | players = updated }, Cmd.none )
+            ( { model
+                | players = updatedPlayers
+                , ball = updatedBall
+                , epoch = model.epoch + 1
+              }
+            , Cmd.none
+            )
+
+
+updateAll : Model -> ( List Player, Ball )
+updateAll model =
+    let
+        playerSpeeds =
+            updateSpeeds model.players
+
+        updatedPlayers =
+            updatePlayers playerSpeeds []
+
+        ( updatedPlayers2, updatedBall ) =
+            handlePotentialPass updatedPlayers model.ball model.epoch
+
+        _ =
+            Debug.log "speed updated" playerSpeeds
+
+        _ =
+            Debug.log "player updated" updatedPlayers
+    in
+    ( updatedPlayers2, updatedBall )
+
+
+handlePotentialPass : List Player -> Ball -> Int -> ( List Player, Ball )
+handlePotentialPass players ball epoch =
+    if epoch == 10 then
+        let
+            hasPossession =
+                List.filter (\p -> p.hasBall) players
+
+            others =
+                List.filter (\p -> not p.hasBall) players
+        in
+        case hasPossession of
+            first :: rest ->
+                let
+                    noLongerPossessing =
+                        { first | hasBall = False }
+
+                    target =
+                        identifyPassingTarget others
+
+                    ( ballSpeedX, ballSpeedY ) =
+                        determineBallSpeedToInterceptTarget noLongerPossessing target
+
+                    -- pass the ball
+                in
+                ( noLongerPossessing :: others
+                , { ball
+                    | speedX = ballSpeedX
+                    , speedY = ballSpeedY
+                    , posnXMeters = first.posnXMeters
+                    , posnYMeters = first.posnYMeters
+                  }
+                )
+
+            [] ->
+                -- check to see if any player can "reach" the current ball
+                let
+                    ( withinReach, notWithinReach ) =
+                        determinePlayersWithinReachOfBall players ball
+                in
+                case withinReach of
+                    [] ->
+                        ( players, { ball | posnXMeters = ball.posnXMeters + ball.speedX, posnYMeters = ball.posnYMeters + ball.speedY } )
+
+                    first :: rest ->
+                        ( List.append ({ first | hasBall = True } :: rest) notWithinReach
+                        , { ball
+                            | posnXMeters = first.posnXMeters
+                            , posnYMeters = first.posnYMeters
+                            , speedX = 0.0
+                            , speedY = 0.0
+                          }
+                        )
+
+    else
+        let
+            hasPossession =
+                List.filter (\p -> p.hasBall) players
+        in
+        case hasPossession of
+            first :: rest ->
+                ( players, { ball | posnXMeters = first.posnXMeters, posnYMeters = first.posnYMeters } )
+
+            [] ->
+                -- check to see if any player can "reach" the current ball
+                let
+                    ( withinReach, notWithinReach ) =
+                        determinePlayersWithinReachOfBall players ball
+                in
+                case withinReach of
+                    [] ->
+                        ( players, { ball | posnXMeters = ball.posnXMeters + ball.speedX, posnYMeters = ball.posnYMeters + ball.speedY } )
+
+                    first :: rest ->
+                        ( List.append ({ first | hasBall = True } :: rest) notWithinReach
+                        , { ball
+                            | posnXMeters = first.posnXMeters
+                            , posnYMeters = first.posnYMeters
+                            , speedX = 0.0
+                            , speedY = 0.0
+                          }
+                        )
+
+
+
+--                ( players, { ball | posnXMeters = ball.posnXMeters + ball.speedX, posnYMeters = ball.posnYMeters + ball.speedY } )
+
+
+determinePlayersWithinReachOfBall players ball =
+    let
+        withinReach =
+            List.filter (\p -> isWithinRadiusOf p ball 2.0) players
+
+        notWithinReach =
+            List.filter (\p -> not (isWithinRadiusOf p ball 2.0)) players
+    in
+    ( withinReach, notWithinReach )
+
+
+isWithinRadiusOf player ball radius =
+    let
+        dx =
+            ball.posnXMeters - player.posnXMeters
+
+        dy =
+            ball.posnYMeters - player.posnYMeters
+
+        dd =
+            sqrt (dx * dx + dy * dy)
+
+        -- is ball moving TOWARDS this player
+        bx2 =
+            ball.posnXMeters + ball.speedX
+
+        by2 =
+            ball.posnYMeters + ball.speedY
+
+        dx2 =
+            bx2 - player.posnXMeters
+
+        dy2 =
+            by2 - player.posnYMeters
+
+        dd2 =
+            sqrt (dx2 * dx2 + dy2 * dy2)
+
+        u1 =
+            dx / dd
+
+        u2 =
+            dy / dd
+
+        b1 =
+            ball.speedX / 2.0
+
+        b2 =
+            ball.speedY / 2.0
+
+        dp =
+            u1 * b1 + u2 * b2
+    in
+    dd < radius && dp < 0
+
+
+determineBallSpeedToInterceptTarget : Player -> Maybe Player -> ( Float, Float )
+determineBallSpeedToInterceptTarget player target =
+    case target of
+        Just targetPlayer ->
+            let
+                dx =
+                    targetPlayer.posnXMeters - player.posnXMeters
+
+                dy =
+                    targetPlayer.posnYMeters - player.posnYMeters
+
+                d =
+                    sqrt (dx * dx + dy * dy)
+
+                u1 =
+                    dx / d
+
+                u2 =
+                    dy / d
+
+                v1 =
+                    targetPlayer.speedMetersPerSec * sin (degrees targetPlayer.headingDeg) / 1.5
+
+                v2 =
+                    targetPlayer.speedMetersPerSec * cos (degrees targetPlayer.headingDeg) / 1.5
+
+                w1 =
+                    u1 + v1
+
+                w2 =
+                    u2 + v2
+            in
+            ( 2.0 * w1, 2.0 * w2 )
+
+        Nothing ->
+            ( 0.0, 0.0 )
+
+
+identifyPassingTarget : List Player -> Maybe Player
+identifyPassingTarget players =
+    List.head players
+
+
+updateBall : List Player -> Ball -> Ball
+updateBall players ball =
+    let
+        hasPossession =
+            List.filter (\p -> p.hasBall) players
+    in
+    case hasPossession of
+        first :: rest ->
+            { ball | posnXMeters = first.posnXMeters, posnYMeters = first.posnYMeters }
+
+        [] ->
+            { ball | posnXMeters = ball.posnXMeters + ball.speedX, posnYMeters = ball.posnYMeters + ball.speedY }
 
 
 updateSpeeds : List Player -> List Player
@@ -194,7 +423,7 @@ mapTargetSpeedsToPlayers speedsToApplyByPlayer players updatedSoFar =
                             sqrt (targetX * targetX + targetY * targetY)
 
                         updated =
-                            Player first.uid first.posnXMeters first.posnYMeters headingDeg speedMetersPerSec
+                            Player first.uid first.posnXMeters first.posnYMeters headingDeg speedMetersPerSec first.hasBall
                     in
                     mapTargetSpeedsToPlayers speedsToApplyByPlayer rest (updated :: updatedSoFar)
 
@@ -380,6 +609,9 @@ view model =
 
         playerEntities =
             renderPlayers model
+
+        ballEntity =
+            renderBall model
     in
     div []
         [ svg
@@ -387,7 +619,10 @@ view model =
             , height pxHeight
             , viewBox (String.join " " [ "0", "0", pxWidth, pxHeight ])
             ]
-            (List.append playerEntities fieldEntities)
+            (List.append
+                (List.append playerEntities fieldEntities)
+                ballEntity
+            )
         ]
 
 
@@ -516,21 +751,72 @@ renderPlayer model player =
     let
         posn =
             getPlayerPosnInPixels model player
+
+        icon =
+            circle
+                [ cx (Tuple.first posn)
+                , cy (Tuple.second posn)
+                , r "10"
+                , fill "#ff0000"
+                , fillOpacity "0.5"
+                ]
+                []
+
+        label =
+            Svg.text_
+                [ x (Tuple.first posn)
+                , y (Tuple.second posn)
+                ]
+                [ Svg.text player.uid ]
+
+        -- ball =
+        --     circle
+        --         [ cx (Tuple.first posn)
+        --         , cy (Tuple.second posn)
+        --         , r "4"
+        --         , fill "#ffffff"
+        --         , fillOpacity "1.0"
+        --         ]
+        --         []
+    in
+    [ icon, label ]
+
+
+
+-- case player.hasBall of
+--     True ->
+--         [ icon, label, ball ]
+--
+--     False ->
+--         [ icon, label ]
+
+
+renderBall model =
+    let
+        posn =
+            getBallPosnInPixels model
     in
     [ circle
         [ cx (Tuple.first posn)
         , cy (Tuple.second posn)
-        , r "10"
-        , fill "#ff0000"
-        , fillOpacity "0.5"
+        , r "4"
+        , fill "#ffffff"
+        , fillOpacity "1.0"
         ]
         []
-    , Svg.text_
-        [ x (Tuple.first posn)
-        , y (Tuple.second posn)
-        ]
-        [ Svg.text player.uid ]
     ]
+
+
+getBallPosnInPixels : Model -> ( String, String )
+getBallPosnInPixels model =
+    let
+        pX =
+            toPixelsX model getFieldWidthInMeters model.ball.posnXMeters
+
+        pY =
+            toPixelsY model getFieldLengthInMeters model.ball.posnYMeters
+    in
+    ( pX, pY )
 
 
 getPlayerPosnInPixels : Model -> Player -> ( String, String )
