@@ -62,6 +62,7 @@ type alias Model =
     , originX : Int
     , originY : Int
     , players : List Player
+    , passingTarget : Maybe Player
     , ball : Ball
     , epoch : Int
     }
@@ -95,7 +96,7 @@ type Msg
 
 init : () -> ( Model, Cmd Msg )
 init _ =
-    ( Model 800 800 20 20 [ Player "1" 10.0 23.0 0 1.0 False, Player "2" 11.0 24.0 0 0.0 True, Player "3" 12.0 23.0 0 0.0 False ] (Ball 0.0 0.0 0.0 0.0) 0, Cmd.none )
+    ( Model 800 800 20 20 [ Player "1" 10.0 23.0 0 1.0 False, Player "2" 11.0 24.0 0 0.0 True, Player "3" 12.0 23.0 0 0.0 False ] Nothing (Ball 0.0 0.0 0.0 0.0) 0, Cmd.none )
 
 
 update : Msg -> Model -> ( Model, Cmd Msg )
@@ -103,11 +104,12 @@ update msg model =
     case msg of
         TimeUpdate tposix ->
             let
-                ( updatedPlayers, updatedBall ) =
+                ( updatedPlayers, updatedPassingTarget, updatedBall ) =
                     updateAll model
             in
             ( { model
                 | players = updatedPlayers
+                , passingTarget = updatedPassingTarget
                 , ball = updatedBall
                 , epoch = model.epoch + 1
               }
@@ -115,7 +117,7 @@ update msg model =
             )
 
 
-updateAll : Model -> ( List Player, Ball )
+updateAll : Model -> ( List Player, Maybe Player, Ball )
 updateAll model =
     let
         playerSpeeds =
@@ -124,8 +126,8 @@ updateAll model =
         updatedPlayers =
             updatePlayers playerSpeeds []
 
-        ( updatedPlayers2, updatedBall ) =
-            handlePotentialPass updatedPlayers model.ball model.epoch
+        ( updatedPlayers2, updatedPassingTarget, updatedBall ) =
+            handlePotentialPass updatedPlayers model.passingTarget model.ball model.epoch
 
         _ =
             Debug.log "speed updated" playerSpeeds
@@ -133,11 +135,11 @@ updateAll model =
         _ =
             Debug.log "player updated" updatedPlayers
     in
-    ( updatedPlayers2, updatedBall )
+    ( updatedPlayers2, updatedPassingTarget, updatedBall )
 
 
-handlePotentialPass : List Player -> Ball -> Int -> ( List Player, Ball )
-handlePotentialPass players ball epoch =
+handlePotentialPass : List Player -> Maybe Player -> Ball -> Int -> ( List Player, Maybe Player, Ball )
+handlePotentialPass players currentPassingTarget ball epoch =
     if epoch == 10 then
         let
             hasPossession =
@@ -161,6 +163,7 @@ handlePotentialPass players ball epoch =
                     -- pass the ball
                 in
                 ( noLongerPossessing :: others
+                , target
                 , { ball
                     | speedX = ballSpeedX
                     , speedY = ballSpeedY
@@ -177,10 +180,11 @@ handlePotentialPass players ball epoch =
                 in
                 case withinReach of
                     [] ->
-                        ( players, { ball | posnXMeters = ball.posnXMeters + ball.speedX, posnYMeters = ball.posnYMeters + ball.speedY } )
+                        ( players, currentPassingTarget, { ball | posnXMeters = ball.posnXMeters + ball.speedX, posnYMeters = ball.posnYMeters + ball.speedY } )
 
                     first :: rest ->
                         ( List.append ({ first | hasBall = True } :: rest) notWithinReach
+                        , Nothing
                         , { ball
                             | posnXMeters = first.posnXMeters
                             , posnYMeters = first.posnYMeters
@@ -196,7 +200,7 @@ handlePotentialPass players ball epoch =
         in
         case hasPossession of
             first :: rest ->
-                ( players, { ball | posnXMeters = first.posnXMeters, posnYMeters = first.posnYMeters } )
+                ( players, currentPassingTarget, { ball | posnXMeters = first.posnXMeters, posnYMeters = first.posnYMeters } )
 
             [] ->
                 -- check to see if any player can "reach" the current ball
@@ -206,10 +210,14 @@ handlePotentialPass players ball epoch =
                 in
                 case withinReach of
                     [] ->
-                        ( players, { ball | posnXMeters = ball.posnXMeters + ball.speedX, posnYMeters = ball.posnYMeters + ball.speedY } )
+                        ( players
+                        , currentPassingTarget
+                        , { ball | posnXMeters = ball.posnXMeters + ball.speedX, posnYMeters = ball.posnYMeters + ball.speedY }
+                        )
 
                     first :: rest ->
                         ( List.append ({ first | hasBall = True } :: rest) notWithinReach
+                        , currentPassingTarget
                         , { ball
                             | posnXMeters = first.posnXMeters
                             , posnYMeters = first.posnYMeters
@@ -785,28 +793,94 @@ renderPlayer model player =
         [ label, icon, icon2 ]
 
     else
-        let
-            posn =
-                getPlayerPosnInPixels model player
+        case model.passingTarget of
+            Nothing ->
+                let
+                    posn =
+                        getPlayerPosnInPixels model player
 
-            icon =
-                circle
-                    [ cx (Tuple.first posn)
-                    , cy (Tuple.second posn)
-                    , r "10"
-                    , fill "#ff0000"
-                    , fillOpacity "0.5"
-                    ]
-                    []
+                    icon =
+                        circle
+                            [ cx (Tuple.first posn)
+                            , cy (Tuple.second posn)
+                            , r "10"
+                            , fill "#ff0000"
+                            , fillOpacity "0.5"
+                            ]
+                            []
 
-            label =
-                Svg.text_
-                    [ x (Tuple.first posn)
-                    , y (Tuple.second posn)
-                    ]
-                    [ Svg.text player.uid ]
-        in
-        [ icon, label ]
+                    label =
+                        Svg.text_
+                            [ x (Tuple.first posn)
+                            , y (Tuple.second posn)
+                            ]
+                            [ Svg.text player.uid ]
+                in
+                [ icon, label ]
+
+            Just aPlayer ->
+                if aPlayer.uid == player.uid then
+                    let
+                        posn =
+                            getPlayerPosnInPixels model player
+
+                        icon =
+                            circle
+                                [ cx (Tuple.first posn)
+                                , cy (Tuple.second posn)
+                                , r "10"
+                                , fill "#ff0000"
+                                , fillOpacity "0.5"
+                                ]
+                                []
+
+                        label =
+                            Svg.text_
+                                [ x (Tuple.first posn)
+                                , y (Tuple.second posn)
+                                ]
+                                [ Svg.text player.uid ]
+
+                        targetPosn =
+                            getPlayerPosnInPixels model aPlayer
+
+                        targetIcon =
+                            circle
+                                [ cx (Tuple.first posn)
+                                , cy (Tuple.second posn)
+                                , r "15"
+                                , strokeWidth "2"
+                                , fillOpacity "0.0"
+                                , strokeDasharray "4"
+                                , stroke "red"
+                                ]
+                                []
+                    in
+                    [ icon, targetIcon, label ]
+
+                else
+                    let
+                        posn =
+                            getPlayerPosnInPixels model player
+
+                        icon =
+                            circle
+                                [ cx (Tuple.first posn)
+                                , cy (Tuple.second posn)
+                                , r "10"
+                                , fill "#ff0000"
+                                , fillOpacity "0.5"
+                                ]
+                                []
+
+                        label =
+                            Svg.text_
+                                [ x (Tuple.first posn)
+                                , y (Tuple.second posn)
+                                ]
+                                [ Svg.text player.uid ]
+                    in
+                    [ icon, label ]
 
 
 
