@@ -1,10 +1,12 @@
 module Main exposing (main, update, view)
 
 import Browser
+import Browser.Events exposing (onKeyPress)
 import Debug
 import Dict exposing (Dict)
 import Html exposing (Html, button, div, text)
 import Html.Events exposing (onClick)
+import Json.Decode as Decode
 import Svg exposing (..)
 import Svg.Attributes exposing (..)
 import Time
@@ -100,6 +102,8 @@ type State
 
 type Msg
     = TimeUpdate Time.Posix
+    | CharacterKey Char
+    | ControlKey String
 
 
 init : () -> ( Model, Cmd Msg )
@@ -110,6 +114,12 @@ init _ =
 update : Msg -> Model -> ( Model, Cmd Msg )
 update msg model =
     case msg of
+        CharacterKey c ->
+            ( model, Cmd.none )
+
+        ControlKey string ->
+            ( model, Cmd.none )
+
         TimeUpdate tposix ->
             let
                 ( updatedPlayers, updatedPassingTarget, updatedBall ) =
@@ -764,7 +774,7 @@ updateAndLimitHeading player =
 
 subscriptions : Model -> Sub Msg
 subscriptions model =
-    Time.every 1000 TimeUpdate
+    Sub.batch [ Time.every 1000 TimeUpdate, onKeyPress keyDecoder ]
 
 
 view model =
@@ -1306,3 +1316,18 @@ getOriginInPixelsAsStrings model =
 
 getFieldWidthAndHeightInPixelsAsStrings model =
     ( String.fromInt model.viewX, String.fromInt model.viewY )
+
+
+keyDecoder : Decode.Decoder Msg
+keyDecoder =
+    Decode.map toKey (Decode.field "key" Decode.string)
+
+
+toKey : String -> Msg
+toKey keyValue =
+    case String.uncons keyValue of
+        Just ( char, "" ) ->
+            CharacterKey char
+
+        _ ->
+            ControlKey keyValue
