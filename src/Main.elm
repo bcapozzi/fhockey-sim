@@ -53,6 +53,7 @@ type alias Player =
     , headingDeg : Float
     , speedMetersPerSec : Float
     , hasBall : Bool
+    , state : State
     }
 
 
@@ -84,6 +85,13 @@ type alias Speed =
     }
 
 
+type State
+    = PursuingBall
+    | SpreadingOut
+    | PossessingBall
+    | HoldingPosn
+
+
 
 --type Msg
 --    = Increment
@@ -96,7 +104,7 @@ type Msg
 
 init : () -> ( Model, Cmd Msg )
 init _ =
-    ( Model 800 800 20 20 [ Player "1" 10.0 23.0 0 1.0 False, Player "2" 11.0 24.0 0 0.0 True, Player "3" 12.0 23.0 0 0.0 False ] Nothing (Ball 0.0 0.0 0.0 0.0) 0, Cmd.none )
+    ( Model 800 800 20 20 [ Player "1" 10.0 23.0 0 0.0 False HoldingPosn, Player "2" 11.0 24.0 0 0.0 False HoldingPosn, Player "3" 12.0 23.0 0 0.0 False HoldingPosn ] Nothing (Ball 11.0 30.0 0.0 0.0) 0, Cmd.none )
 
 
 update : Msg -> Model -> ( Model, Cmd Msg )
@@ -121,7 +129,7 @@ updateAll : Model -> ( List Player, Maybe Player, Ball )
 updateAll model =
     let
         playerSpeeds =
-            updateSpeeds model.players
+            updateSpeeds model.players model.ball model.passingTarget
 
         updatedPlayers =
             updatePlayers playerSpeeds []
@@ -284,7 +292,7 @@ isWithinRadiusOf player ball radius =
         dp =
             u1 * b1 + u2 * b2
     in
-    dd < radius && dp < 0
+    dd < radius && dp <= 0
 
 
 determineBallSpeedToInterceptTarget : Player -> Maybe Player -> ( Float, Float )
@@ -344,11 +352,11 @@ updateBall players ball =
             { ball | posnXMeters = ball.posnXMeters + ball.speedX, posnYMeters = ball.posnYMeters + ball.speedY }
 
 
-updateSpeeds : List Player -> List Player
-updateSpeeds players =
+updateSpeeds : List Player -> Ball -> Maybe Player -> List Player
+updateSpeeds players ball passingTarget =
     let
         targetSpeeds =
-            evaluateSpeeds [] (List.head players) (List.drop 1 players)
+            evaluateSpeeds [] (List.head players) (List.drop 1 players) ball players passingTarget
 
         -- create dict : String --> List Speed
         speedsToApplyByPlayer =
@@ -378,7 +386,7 @@ initSpeedsToZero players initializedSoFar =
             initSpeedsToZero rest updatedSoFar
 
 
-combineByPlayer : List ( Speed, Speed ) -> Dict String ( Float, Float ) -> Dict String ( Float, Float )
+combineByPlayer : List Speed -> Dict String ( Float, Float ) -> Dict String ( Float, Float )
 combineByPlayer targetSpeeds targetByPlayerSoFar =
     case targetSpeeds of
         [] ->
@@ -387,18 +395,12 @@ combineByPlayer targetSpeeds targetByPlayerSoFar =
         first :: rest ->
             let
                 relSpeed1 =
-                    Tuple.first first
-
-                relSpeed2 =
-                    Tuple.second first
+                    first
 
                 updatedTargetByPlayer1 =
                     Dict.update relSpeed1.for (Maybe.map (\p -> ( Tuple.first p + relSpeed1.speedX, Tuple.second p + relSpeed1.speedY ))) targetByPlayerSoFar
-
-                updatedTargetByPlayer2 =
-                    Dict.update relSpeed2.for (Maybe.map (\p -> ( Tuple.first p + relSpeed2.speedX, Tuple.second p + relSpeed2.speedY ))) updatedTargetByPlayer1
             in
-            combineByPlayer rest updatedTargetByPlayer2
+            combineByPlayer rest updatedTargetByPlayer1
 
 
 mapTargetSpeedsToPlayers : Dict String ( Float, Float ) -> List Player -> List Player -> List Player
@@ -431,34 +433,139 @@ mapTargetSpeedsToPlayers speedsToApplyByPlayer players updatedSoFar =
                             sqrt (targetX * targetX + targetY * targetY)
 
                         updated =
-                            Player first.uid first.posnXMeters first.posnYMeters headingDeg speedMetersPerSec first.hasBall
+                            { first
+                                | headingDeg = headingDeg
+                                , speedMetersPerSec = speedMetersPerSec
+                                , hasBall = first.hasBall
+                            }
                     in
                     mapTargetSpeedsToPlayers speedsToApplyByPlayer rest (updated :: updatedSoFar)
 
 
-evaluateSpeeds : List ( Speed, Speed ) -> Maybe Player -> List Player -> List ( Speed, Speed )
-evaluateSpeeds resultsSoFar current others =
+computeDistanceToBall player ball =
+    let
+        dx =
+            ball.posnXMeters - player.posnXMeters
+
+        dy =
+            ball.posnYMeters - player.posnYMeters
+    in
+    { player = player
+    , distance = sqrt (dx * dx + dy * dy)
+    }
+
+
+playerAlreadyInPossession players =
+    let
+        hasPossession =
+            List.filter (\p -> p.hasBall) players
+    in
+    case hasPossession of
+        [] ->
+            False
+
+        first :: rest ->
+            True
+
+
+ballIsBeingPassed passingTarget =
+    case passingTarget of
+        Nothing ->
+            False
+
+        Just aPlayer ->
+            True
+
+
+checkIfShouldPursueBall player players ball passingTarget =
+    if playerAlreadyInPossession players || ballIsBeingPassed passingTarget then
+        False
+
+    else
+        let
+            playerDistances =
+                List.map (\p -> computeDistanceToBall p ball) players
+
+            sortedDistances =
+                List.sortBy .distance playerDistances
+        in
+        case List.head sortedDistances of
+            Nothing ->
+                False
+
+            Just aDistance ->
+                if aDistance.player.uid == player.uid then
+                    True
+
+                else
+                    False
+
+
+computeBallPursuitSpeed shouldPursue aPlayer ball =
+    if shouldPursue then
+        let
+            ( sx, sy ) =
+                computeSpeedToBall aPlayer ball
+        in
+        Speed aPlayer.uid aPlayer.uid sx sy
+
+    else
+        Speed aPlayer.uid aPlayer.uid 0.0 0.0
+
+
+computeSpeedToBall player ball =
+    -- determine course to ball
+    let
+        dx =
+            ball.posnXMeters - player.posnXMeters
+
+        dy =
+            ball.posnYMeters - player.posnYMeters
+
+        courseToBall =
+            atan2 dy dx
+
+        dd =
+            sqrt (dx * dx + dy * dy)
+
+        spd =
+            Basics.min dd 1.5
+    in
+    ( spd * sin courseToBall, spd * cos courseToBall )
+
+
+evaluateSpeeds : List Speed -> Maybe Player -> List Player -> Ball -> List Player -> Maybe Player -> List Speed
+evaluateSpeeds resultsSoFar current others ball allPlayers passingTarget =
     case current of
         Nothing ->
             resultsSoFar
 
         Just aPlayer ->
             let
+                shouldMoveToBall =
+                    checkIfShouldPursueBall aPlayer allPlayers ball passingTarget
+
+                pursuitSpeed =
+                    computeBallPursuitSpeed shouldMoveToBall aPlayer ball
+
                 speeds =
                     determineRelativeSpeeds aPlayer others
 
                 updatedSpeeds =
                     List.append speeds resultsSoFar
+
+                updatedSpeeds2 =
+                    pursuitSpeed :: updatedSpeeds
             in
-            evaluateSpeeds updatedSpeeds (List.head others) (List.drop 1 others)
+            evaluateSpeeds updatedSpeeds2 (List.head others) (List.drop 1 others) ball allPlayers passingTarget
 
 
-determineRelativeSpeeds : Player -> List Player -> List ( Speed, Speed )
+determineRelativeSpeeds : Player -> List Player -> List Speed
 determineRelativeSpeeds current others =
-    List.map (\o -> determineRelativeSpeed current o) others
+    List.concat (List.map (\o -> determineRelativeSpeed current o) others)
 
 
-determineRelativeSpeed : Player -> Player -> ( Speed, Speed )
+determineRelativeSpeed : Player -> Player -> List Speed
 determineRelativeSpeed current other =
     let
         targetDistanceMeters =
@@ -500,7 +607,7 @@ determineRelativeSpeed current other =
         speed2 =
             Speed other.uid current.uid speedX2 speedY2
     in
-    ( speed1, speed2 )
+    [ speed1, speed2 ]
 
 
 getTargetSpeed distanceBetween =
